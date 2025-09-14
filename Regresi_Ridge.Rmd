@@ -1,0 +1,142 @@
+---
+title: "Analisis Ridge Regression untuk Mengatasi Multikolinearitas"
+author: "Ferdian Bangkit Wijaya"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  github_document:
+    toc: true
+---
+
+# Latar Belakang
+
+Laporan ini mendemonstrasikan alur kerja untuk mengatasi masalah **multikolinearitas** dalam model regresi linier menggunakan **Ridge Regression**. Multikolinearitas terjadi ketika variabel prediktor dalam model sangat berkorelasi satu sama lain, yang dapat menyebabkan estimasi koefisien menjadi tidak stabil dan sulit diinterpretasikan.
+
+Studi kasus ini akan melalui langkah-langkah berikut:
+1.  Memuat data simulasi mahasiswa.
+2.  Mendiagnosis adanya multikolinearitas parah menggunakan *Variance Inflation Factor* (VIF).
+3.  Menjalankan model OLS (Ordinary Least Squares) sebagai *baseline* untuk melihat dampak negatif multikolinearitas.
+4.  Menerapkan Ridge Regression sebagai solusi.
+5.  Membandingkan hasil koefisien dari model OLS dan Ridge.
+
+```{r setup, include=FALSE}
+# Chunk ini untuk persiapan awal, seperti memuat library.
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# Membersihkan environment (opsional, tapi praktik yang baik)
+rm(list = ls())
+
+# Memuat library yang dibutuhkan
+library(readxl)
+library(car)
+library(glmnet)
+library(knitr)
+```
+
+## 1. Memuat Data
+
+Data yang digunakan adalah data simulasi yang berisi Indeks Prestasi Kumulatif (IPK) mahasiswa beserta beberapa variabel prediktor. Data ini dimuat dari file Excel.
+
+```{r load-data}
+# Path ke file Excel yang sudah disimpan
+file_path <- "C:/Users/user/OneDrive - untirta.ac.id/UNTIRTA/Bahan Ajar/Supervised Learning/Github Supervised Learning/data_simulasi_ridge.xlsx"
+
+# Membaca data dari file Excel ke dalam dataframe
+tryCatch({
+  data_mhs <- read_excel(file_path)
+  print("--- Data Berhasil Dimuat dari Excel ---")
+  kable(head(data_mhs), caption = "Pratinjau 6 Baris Pertama Data Mahasiswa")
+}, error = function(e) {
+  stop("GAGAL MEMBACA FILE. Pastikan path dan nama file sudah benar. Error: ", e$message)
+})
+```
+
+## 2. Diagnosis Multikolinearitas
+
+Sebelum membangun model, kita perlu membuktikan adanya multikolinearitas. Kita akan menggunakan VIF sebagai alat diagnosis. Nilai VIF di atas 10 umumnya dianggap sebagai indikasi multikolinearitas yang serius.
+
+```{r vif-test}
+# Membuat model OLS pada data asli untuk menghitung VIF
+model_ols_raw <- lm(IPK ~ jam_belajar + kehadiran_persen + skor_tryout, data = data_mhs)
+vif_values <- vif(model_ols_raw)
+
+print("--- Hasil Uji VIF untuk Multikolinearitas ---")
+print(vif_values)
+
+if (any(vif_values > 10)) {
+  print("KESIMPULAN: Terbukti ada multikolinearitas parah (VIF > 10). Hasil OLS kemungkinan tidak stabil.")
+}
+```
+
+## 3. Analisis OLS (Model Baseline)
+
+Selanjutnya, kita akan memeriksa hasil model OLS standar pada data asli. Ini akan menjadi model dasar (baseline) kita untuk perbandingan dan untuk melihat secara langsung efek dari multikolinearitas.
+
+```{r ols-analysis}
+print("--- Hasil Model OLS pada Data Asli ---")
+print(summary(model_ols_raw))
+print("ANALISIS OLS: Perhatikan koefisien 'skor_tryout' yang negatif dan tidak signifikan (p-value tinggi). Ini adalah gejala klasik multikolinearitas yang membuat model tidak dapat diinterpretasikan dengan benar.")
+```
+
+## 4. Analisis Ridge Regression
+
+Untuk mengatasi masalah multikolinearitas, kita akan menerapkan Ridge Regression. Proses ini melibatkan standardisasi data, menemukan parameter penalti (lambda) yang optimal, dan melatih model akhir.
+
+### 4.1. Persiapan Data
+Pertama, kita pisahkan variabel prediktor (X) dan respons (y), lalu lakukan standardisasi pada prediktor. Standardisasi adalah langkah wajib dalam Ridge Regression agar penalti diterapkan secara adil ke semua koefisien.
+
+```{r data-prep-ridge}
+# Langkah 5a: Pisahkan matriks prediktor (X) dan vektor respons (y)
+x_matrix_raw <- model.matrix(IPK ~ ., data = data_mhs)[, -1]
+y_vector <- data_mhs$IPK
+
+# Langkah 5b: Lakukan Standarisasi pada Prediktor (Langkah Wajib!)
+x_matrix_scaled <- scale(x_matrix_raw)
+kable(head(x_matrix_scaled), caption = "Pratinjau Data Prediktor Setelah Distandarisasi")
+```
+
+### 4.2. Mencari Lambda Optimal
+Kita menggunakan *cross-validation* untuk menemukan nilai lambda terbaik, yaitu nilai yang meminimalkan error prediksi.
+
+```{r find-lambda}
+# Langkah 5c: Temukan lambda terbaik menggunakan cross-validation
+set.seed(123)
+cv_fit <- cv.glmnet(x_matrix_scaled, y_vector, alpha = 0) # alpha = 0 untuk Ridge
+best_lambda <- cv_fit$lambda.min
+print(paste("Lambda terbaik yang ditemukan:", best_lambda))
+```
+
+### 4.3. Melatih Model Ridge
+Dengan lambda terbaik, kita sekarang melatih model Ridge Regression final.
+
+```{r fit-ridge}
+# Langkah 5d: Latih model Ridge final dengan lambda terbaik
+model_ridge <- glmnet(x_matrix_scaled, y_vector, alpha = 0, lambda = best_lambda)
+```
+
+## 5. Perbandingan Akhir
+
+Langkah terakhir adalah membandingkan koefisien dari model OLS (baik pada data asli maupun yang distandarisasi) dengan koefisien dari model Ridge. Ini akan menunjukkan bagaimana Ridge "menyusutkan" (shrink) koefisien untuk membuatnya lebih stabil.
+
+```{r comparison-table}
+# Langkah 6a: Latih OLS pada data yang SUDAH DISTANDARISASI untuk perbandingan yang adil
+model_ols_scaled <- lm(y_vector ~ x_matrix_scaled)
+
+# Langkah 6b: Ekstrak semua koefisien
+ols_raw_coeffs <- coef(model_ols_raw)
+ols_scaled_coeffs <- coef(model_ols_scaled)
+ridge_scaled_coeffs <- as.vector(coef(model_ridge))
+
+# Langkah 6c: Buat tabel perbandingan yang komprehensif
+perbandingan_final <- data.frame(
+  Variabel = names(ols_raw_coeffs),
+  Koefisien_OLS_Asli = ols_raw_coeffs,
+  Koefisien_OLS_Distandarisasi = ols_scaled_coeffs,
+  Koefisien_Ridge_Distandarisasi = ridge_scaled_coeffs
+)
+rownames(perbandingan_final) <- NULL # Merapikan nomor baris
+
+kable(perbandingan_final, caption = "Perbandingan Koefisien Model OLS vs. Ridge")
+```
+
+### Analisis Perbandingan
+Dari tabel di atas, kita bisa melihat bagaimana koefisien OLS pada data asli memiliki nilai yang tidak masuk akal (misalnya, `skor_tryout` yang negatif). Setelah distandarisasi, koefisien OLS tetap besar. Namun, koefisien Ridge Regression jauh lebih kecil dan lebih stabil, menunjukkan efek dari penalti regularisasi dalam mengatasi multikolinearitas.
