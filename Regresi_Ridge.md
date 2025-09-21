@@ -1,7 +1,7 @@
 Analisis Ridge Regression untuk Mengatasi Multikolinearitas
 ================
 Ferdian Bangkit Wijaya
-14 September 2025
+21 September 2025
 
 - [Latar Belakang](#latar-belakang)
   - [1. Memuat Data](#1-memuat-data)
